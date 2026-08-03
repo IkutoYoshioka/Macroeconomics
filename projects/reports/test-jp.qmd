@@ -1,0 +1,40 @@
+---
+title: "動作確認レポート"
+format:
+  html:
+    default
+  pdf:
+    documentclass: bxjsarticle
+    classoption: [pandoc, ja=standard]
+    pdf-engine: lualatex
+mainfont: "Noto Serif CJK JP"
+sansfont: "Noto Sans CJK JP"
+jupyter: python3
+---
+
+## モデル設定
+
+Taylorルールを次のように定式化する:
+
+$$
+i_t = r^* + \pi_t + \phi_\pi (\pi_t - \pi^*) + \phi_y y_t
+$$
+
+```{python}
+import numpy as np
+x = np.linspace(0, 10, 5)
+print(x)
+```
+
+日本語のテキストが正しく表示されるか確認します。ここには「固定収益市場」「イールドカーブ」「修正デュレーション」といった専門用語も含めておきます。
+
+```{python}
+import matplotlib.pyplot as plt
+
+y = np.random.normal(size=100)
+plt.hist(y, bins=20)
+plt.title("example histogram")
+plt.xlabel("values")
+plt.ylabel("frequency")
+plt.show()
+```
