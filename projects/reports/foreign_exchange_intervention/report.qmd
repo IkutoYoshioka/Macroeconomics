@@ -1,39 +1,37 @@
 ---
-title: "為替介入の効果は日銀の利上げ次第か——2026年7月協調介入の理論分析"
-subtitle: "不胎化介入・金利差・キャリートレードの視点から"
+title: "為替介入の効果と日銀の利上げの関係"
+subtitle: "2026年7月協調介入の事例を中心に"
 author: "吉岡惟都"
 date: today
 date-format: "YYYY年MM月DD日"
 lang: ja
 
 format:
-  pdf:
-    documentclass: ltjsarticle
-    pdf-engine: lualatex
-    mainfont: "Noto Serif CJK JP"
-    sansfont: "Noto Sans CJK JP"
-    monofont: "Noto Sans Mono CJK JP"
+  html:
     toc: true
     toc-title: "目次"
+    toc-location: left
     number-sections: true
-    fontsize: 11pt
-    geometry:
-      - margin=25mm
-    keep-tex: false
+    theme: cosmo
+    fontsize: 1.05em
+    linkcolor: "#2c5f8a"
+    fig-width: 9
+    fig-height: 5.5
+    embed-resources: true
 
 crossref:
   eq-prefix: "式"
   fig-title: "図"
   tbl-title: "表"
-  title-delim: ":"
+  title-delim: "："
 
 bibliography: references.bib
-csl: apa.csl        # 必要に応じて経済学系CSLに変更可
+csl: apa.csl
 link-citations: true
 
 execute:
   echo: false
-  eval: false        # 数式・文章中心のため既定でコード非実行。図表作成時はチャンクごとにeval: trueへ
+  eval: false
 ---
 
 <!--
@@ -46,42 +44,115 @@ execute:
 
 # はじめに
 
-<!-- 問題設定・有識者発言の引用・本稿の構成予告（数段落） -->
-日米両政府が7月31日の外国為替市場で円買いの協調介入を実施したことが報じられた。協調介入は2011年の東日本大震災の直後以来、15年ぶりであり、円買いの日米協調介入はアジア通貨危機を受けた1988年の介入以来、28年ぶりとなる。対ドルの円相場は7月下旬に1ドル＝164円に迫り、およそ40年ぶりの安値更新となった。
+日米両政府が7月31日の外国為替市場で円買いの協調介入を実施したことが報じられた。協調介入は2011年の東日本大震災の直後以来、15年ぶりであり、円買いの日米協調介入はアジア通貨危機を受けた1998年の介入以来、28年ぶりとなる。対ドルの円相場は7月下旬に1ドル＝164円に迫り、およそ40年ぶりの安値更新となった。
 
 ```{python}
 #| eval: true
-#| fig-cap: "2026年7月下旬のドル円レート・日米政策金利・主要イベント"
-#| label: fig-timeline
+#| label: setup-data
 
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from matplotlib import font_manager
+# ==================================================================
+# 共通セットアップ：API取得・キャッシュ・日本語フォント
+# 以降の全チャンクはここで定義した関数・変数を再利用する
+# ==================================================================
+
+import os
+from pathlib import Path
 import pandas as pd
 import numpy as np
-from adjustText import adjust_text
+import yfinance as yf
+from fredapi import Fred
+from dotenv import load_dotenv
+from matplotlib import font_manager
+import matplotlib.pyplot as plt
+import plotly.io as pio
+pio.renderers.default = "plotly_mimetype+notebook"
+
+# --- .env読み込み（reports/直下を明示指定） ---
+# report.qmd は reports/foreign_exchange_intervention/ にあるため、
+# 1階層上の reports/.env を明示的に指定する
+env_path = Path.cwd().parent / ".env"
+load_dotenv(dotenv_path=env_path)
+
+FRED_API_KEY = os.getenv("FRED_API_KEY")
+if FRED_API_KEY is None:
+    raise RuntimeError(
+        f".envからFRED_API_KEYを読み込めませんでした。想定パス: {env_path}"
+    )
+fred = Fred(api_key=FRED_API_KEY)
 
 # --- 日本語フォント設定 ---
-# 環境にあるCJKフォントを指定（Noto Sans CJK JPが無ければ利用可能なものに変更）
 font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 font_manager.fontManager.addfont(font_path)
 font_prop = font_manager.FontProperties(fname=font_path)
 plt.rcParams["font.family"] = font_prop.get_name()
 plt.rcParams["axes.unicode_minus"] = False
 
-# --- ① ドル円レート ---
-dates = pd.date_range("2026-07-20", "2026-08-03", freq="D")
-fx_rate = [162.50, 163.18, 163.14, 163.86, 163.85, np.nan, np.nan,
-           163.75, 163.85, 163.40, 159.54, 157.58, np.nan, 157.50, np.nan]  
+# --- キャッシュ付きデータ取得関数 ---
+CACHE_DIR = Path("data_cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
-fx = pd.Series(fx_rate, index=dates)
+def fetch_usdjpy(start, end, cache_name):
+    """USD/JPY日次終値を取得（キャッシュがあればそれを使う）"""
+    cache_path = CACHE_DIR / f"{cache_name}.csv"
+    if cache_path.exists():
+        return pd.read_csv(cache_path, index_col=0, parse_dates=True).squeeze()
+    df = yf.download("JPY=X", start=start, end=end, progress=False)
+    series = df["Close"].squeeze()
+    series.to_csv(cache_path)
+    return series
 
-# --- ② 日米政策金利（期間中は据え置きなので水平のステップ） ---
-boj_rate = pd.Series(1.00, index=dates)          # 日銀: 1.0%で不変
-fed_upper = pd.Series(3.75, index=dates)         # FRB上限: 3.75%で不変
-fed_lower = pd.Series(3.50, index=dates)         # FRB下限: 3.50%で不変
+def fetch_fed_range(start, end, cache_name):
+    cache_path_u = CACHE_DIR / f"{cache_name}_upper.csv"
+    cache_path_l = CACHE_DIR / f"{cache_name}_lower.csv"
+    if cache_path_u.exists() and cache_path_l.exists():
+        upper = pd.read_csv(cache_path_u, index_col=0, parse_dates=True).squeeze()
+        lower = pd.read_csv(cache_path_l, index_col=0, parse_dates=True).squeeze()
+    else:
+        upper = fred.get_series("DFEDTARU", observation_start=start, observation_end=end)
+        lower = fred.get_series("DFEDTARL", observation_start=start, observation_end=end)
+        upper.to_csv(cache_path_u)
+        lower.to_csv(cache_path_l)
 
-# --- ③ イベント（日付とラベル） ---
+    # 防御的に期間を再スライス（引数名ミス等があっても図には影響しない）
+    upper = upper.loc[pd.Timestamp(start):pd.Timestamp(end)]
+    lower = lower.loc[pd.Timestamp(start):pd.Timestamp(end)]
+    return upper, lower
+
+# --- 日銀政策金利：会合日ベースの手動辞書（API提供元が無いため） ---
+# 要ファクトチェック：日付・水準は会合ごとに確認して更新すること
+boj_decisions = {
+    "2026-01-24": 0.50,
+    "2026-04-28": 0.75,
+    "2026-06-17": 1.00,   # 前回会合で利上げ実施（日付は要確認）
+    "2026-07-31": 1.00,   # 据え置き
+}
+
+def boj_rate_series(dates, decisions=boj_decisions):
+    """会合日の辞書から、指定日付範囲のステップ関数（Series）を生成"""
+    decision_dates = sorted(pd.Timestamp(d) for d in decisions)
+    rates = []
+    for d in dates:
+        applicable = [dd for dd in decision_dates if dd <= d]
+        rates.append(decisions[applicable[-1].strftime("%Y-%m-%d")] if applicable else np.nan)
+    return pd.Series(rates, index=dates)
+```
+
+```{python}
+#| eval: true
+#| fig-cap: "2026年7月下旬のドル円レート・日米政策金利・主要イベント"
+#| label: fig-timeline
+
+import matplotlib.dates as mdates
+from adjustText import adjust_text
+
+# --- ① ドル円レート（API取得） ---
+fx = fetch_usdjpy("2026-07-20", "2026-08-05", "usdjpy_july2026")
+
+# --- ② 日米政策金利（API取得＋会合日辞書） ---
+fed_upper, fed_lower = fetch_fed_range("2026-07-20", "2026-08-05", "fedrate_july2026")
+boj_rate = boj_rate_series(fx.index)
+
+# --- ③ イベント ---
 events = {
     "2026-07-23": "NY市場で\n39年ぶり安値\n(163.99円)",
     "2026-07-28": "FOMC開始",
@@ -92,14 +163,12 @@ events = {
 # --- 描画 ---
 fig, ax1 = plt.subplots(figsize=(11, 6))
 
-# 左軸: ドル円レート
 ax1.plot(fx.index, fx.values, color="tab:blue", marker="o",
          markersize=4, linewidth=1.8, label="ドル円レート（左軸）")
 ax1.set_ylabel("ドル円レート（円/ドル）", color="tab:blue")
 ax1.tick_params(axis="y", labelcolor="tab:blue")
 ax1.set_xlabel("日付")
 
-# 右軸: 政策金利
 ax2 = ax1.twinx()
 ax2.step(boj_rate.index, boj_rate.values, where="post",
          color="tab:red", linewidth=1.5, label="日銀政策金利（右軸）")
@@ -109,7 +178,6 @@ ax2.fill_between(fed_upper.index, fed_lower.values, fed_upper.values,
 ax2.set_ylabel("政策金利（%）", color="tab:gray")
 ax2.set_ylim(0, 4.5)
 
-# イベント注釈（縦線＋テキスト）
 texts = []
 for date_str, label in events.items():
     d = pd.Timestamp(date_str)
@@ -118,15 +186,12 @@ for date_str, label in events.items():
                  ha="center", fontsize=8, color="dimgray")
     texts.append(t)
 
-adjust_text(texts, ax=ax1,
-            arrowprops=dict(arrowstyle="-", color="gray", lw=0.6))
+adjust_text(texts, ax=ax1, arrowprops=dict(arrowstyle="-", color="gray", lw=0.6))
 
-# x軸フォーマット
 ax1.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
 ax1.xaxis.set_major_locator(mdates.DayLocator(interval=2))
 fig.autofmt_xdate(rotation=45)
 
-# 凡例をまとめる
 lines1, labels1 = ax1.get_legend_handles_labels()
 lines2, labels2 = ax2.get_legend_handles_labels()
 ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left", fontsize=9)
@@ -136,105 +201,60 @@ plt.show()
 ```
 
 
+この一連の動きは、 @fig-timeline に示した通り、7月23日にドル円が163円99銭という39年ぶりの安値を付けたことに起因する。7月28日～31日には日米の金融政策決定会合が相次いで開催され、FOMCはFF金利を3.50～3.75%で据え置き、日銀も政策金利を1.0%で据え置いた。その最中の7月30日に政府・日銀が円買い・ドル売り介入に踏み切り、続いて米財務省も介入に加わったことで、2011年の東日本大震災直後以来となる日米協調介入が成立した。政策金利は両国とも動かず、動いたのは介入という為替市場での需給操作だけであった、という構図が見て取れる。
+
 ```{python}
 #| eval: true
 #| fig-cap: "2026年4月末〜5月上旬：ドル円レート・日米政策金利・単独介入イベント"
 #| label: fig-timeline-april
 
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from matplotlib import font_manager
 from matplotlib.ticker import MultipleLocator
-import pandas as pd
-import numpy as np
-from adjustText import adjust_text
 
-# --- 日本語フォント設定 ---
-font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
-font_manager.fontManager.addfont(font_path)
-font_prop = font_manager.FontProperties(fname=font_path)
-plt.rcParams["font.family"] = font_prop.get_name()
-plt.rcParams["axes.unicode_minus"] = False
+# --- ① ドル円レート（API取得） ---
+fx_april = fetch_usdjpy("2026-04-28", "2026-05-27", "usdjpy_april2026")
 
-# --- ① ドル円レート（アップロード画像より実データを転記、土日はNaN） ---
-dates = pd.date_range("2026-04-28", "2026-05-27", freq="D")
+# --- ② 日米政策金利（API取得＋会合日辞書） ---
+fed_upper_a, fed_lower_a = fetch_fed_range("2026-04-28", "2026-05-27", "fedrate_april2026")
+boj_rate_a = boj_rate_series(fx_april.index)
 
-fx_dict = {
-    "2026-04-28": 159.62,
-    "2026-04-29": 160.42,
-    "2026-04-30": 156.58,
-    "2026-05-01": 157.06,
-    # 5/2, 5/3 は土日（祝日含む）でデータなし
-    "2026-05-04": 157.23,
-    "2026-05-05": 157.88,
-    "2026-05-06": 156.39,
-    "2026-05-07": 156.93,
-    "2026-05-08": 156.67,
-    # 5/9, 5/10 は土日でデータなし
-    "2026-05-11": 157.18,
-    "2026-05-12": 157.63,
-    "2026-05-13": 157.86,
-    "2026-05-14": 158.37,
-    "2026-05-15": 158.77,
-    "2026-05-18": 158.84,
-    "2026-05-19": 159.07,
-    "2026-05-20": 158.92,
-    "2026-05-21": 158.98,
-    "2026-05-22": 159.20,
-    "2026-05-25": 158.90,
-    "2026-05-26": 159.30,
-    "2026-05-27": 159.51,
-}
-
-fx_rate = [fx_dict.get(d.strftime("%Y-%m-%d"), np.nan) for d in dates]
-fx = pd.Series(fx_rate, index=dates)
-
-# --- ② 日米政策金利（この期間は据え置き。数値は要ファクトチェック） ---
-boj_rate = pd.Series(0.75, index=dates)          # 当時の日銀政策金利水準（要確認）
-fed_upper = pd.Series(3.75, index=dates)         # 当時のFF金利上限（要確認）
-fed_lower = pd.Series(3.50, index=dates)         # 当時のFF金利下限（要確認）
-
-# --- ③ イベント（単独介入である点を明記） ---
-events = {
+# --- ③ イベント ---
+events_april = {
     "2026-04-28": "日銀会合27&28\n政策金利据え置き\n(0.75%)",
     "2026-04-29": "FOMC28&29\n(3.50~3.75に\n据え置き)",
     "2026-04-30": "政府・日銀\n単独円買い介入\n(協調なし)",
-    "2026-05-27": "介入期間終了\n(4/28-5/27累計\n約11.7兆円)",  # 期間外なら削除
+    "2026-05-27": "介入期間終了\n(4/28-5/27累計\n約11.7兆円)",
 }
-# 表示範囲内のイベントのみ残す
-events = {k: v for k, v in events.items() if pd.Timestamp(k) in dates}
+events_april = {k: v for k, v in events_april.items() if pd.Timestamp(k) in fx_april.index or True}
 
 # --- 描画 ---
 fig, ax1 = plt.subplots(figsize=(11, 6))
 
-ax1.plot(fx.index, fx.values, color="tab:blue", marker="o",
+ax1.plot(fx_april.index, fx_april.values, color="tab:blue", marker="o",
          markersize=4, linewidth=1.8, label="ドル円レート（左軸）")
 ax1.set_ylabel("ドル円レート（円/ドル）", color="tab:blue")
 ax1.tick_params(axis="y", labelcolor="tab:blue")
 ax1.set_xlabel("日付")
-ax1.set_ylim(156,164)
+ax1.set_ylim(156, 164)
+ax1.yaxis.set_major_locator(MultipleLocator(1))
 
 ax2 = ax1.twinx()
-ax2.step(boj_rate.index, boj_rate.values, where="post",
+ax2.step(boj_rate_a.index, boj_rate_a.values, where="post",
          color="tab:red", linewidth=1.5, label="日銀政策金利（右軸）")
-ax2.fill_between(fed_upper.index, fed_lower.values, fed_upper.values,
+ax2.fill_between(fed_upper_a.index, fed_lower_a.values, fed_upper_a.values,
                   step="post", color="tab:green", alpha=0.2,
                   label="FF金利誘導レンジ（右軸）")
 ax2.set_ylabel("政策金利（%）", color="tab:gray")
 ax2.set_ylim(0, 4.5)
-ax1.yaxis.set_major_locator(MultipleLocator(1))
 
 texts = []
-for date_str, label in events.items():
+for date_str, label in events_april.items():
     d = pd.Timestamp(date_str)
     ax1.axvline(d, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
     t = ax1.text(d, ax1.get_ylim()[1] * 0.95, label,
                  ha="center", fontsize=8, color="dimgray")
     texts.append(t)
 
-adjust_text(texts, ax=ax1,
-            arrowprops=dict(arrowstyle="-", color="gray", lw=0.6))
-
+adjust_text(texts, ax=ax1, arrowprops=dict(arrowstyle="-", color="gray", lw=0.6))
 
 ax1.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
 ax1.xaxis.set_major_locator(mdates.DayLocator(interval=2))
@@ -249,13 +269,80 @@ plt.tight_layout()
 plt.show()
 ```
 
+```{python}
+#| eval: true
+#| fig-cap: "介入前日比の推移：単独介入(4月) vs 協調介入(7月)"
+#| label: fig-decay-comparison
+
+import plotly.graph_objects as go
+
+def to_event_time(series, intervention_date, pre_day):
+    base = series.loc[pd.Timestamp(pre_day)]
+    pct = (series - base) / base * 100
+    idx_list = list(series.index)
+    event_day = np.arange(len(series)) - idx_list.index(pd.Timestamp(intervention_date))
+    return pd.Series(pct.values, index=event_day)
+
+april_evt = to_event_time(fx_april, "2026-04-30", "2026-04-29")
+july_evt = to_event_time(fx, "2026-07-30", "2026-07-29")
+
+max_len = max(len(april_evt), len(july_evt))
+frames = []
+for k in range(1, max_len + 1):
+    frames.append(go.Frame(
+        data=[
+            go.Scatter(x=april_evt.index[:k], y=april_evt.values[:k],
+                       mode="lines+markers", name="4月：単独介入"),
+            go.Scatter(x=july_evt.index[:min(k, len(july_evt))],
+                       y=july_evt.values[:min(k, len(july_evt))],
+                       mode="lines+markers", name="7月：協調介入"),
+        ],
+        name=str(k)
+    ))
+
+fig2 = go.Figure(
+    data=[
+        go.Scatter(x=[april_evt.index[0]], y=[april_evt.values[0]],
+                   mode="lines+markers", name="4月：単独介入", line=dict(color="#1f77b4")),
+        go.Scatter(x=[july_evt.index[0]], y=[july_evt.values[0]],
+                   mode="lines+markers", name="7月：協調介入", line=dict(color="#d62728")),
+    ],
+    frames=frames
+)
+
+fig2.add_vline(x=0, line_dash="dash", line_color="gray")
+fig2.add_annotation(x=0, y=2.5, text="介入実施日", showarrow=False, font=dict(size=11))
+
+fig2.update_layout(
+    title="介入前日比の推移：単独介入(4月) vs 協調介入(7月)",
+    xaxis_title="介入からの経過営業日",
+    yaxis_title="介入前日比の変化率（％、正=円安方向）",
+    yaxis=dict(range=[-2.5, 3]),
+    font=dict(family="Noto Sans CJK JP"),
+    updatemenus=[dict(
+        type="buttons",
+        buttons=[dict(label="再生", method="animate",
+                      args=[None, {"frame": {"duration": 400, "redraw": True},
+                                    "fromcurrent": True}])]
+    )]
+)
+
+fig2
+```
+
+この構図を踏まえたとき、注目すべきは今回が単発の事例ではないという点である。@fig-timeline-april に示した4月末の局面でも、政府・日銀は単独で円買い介入を実施しているが、その効果は長続きしなかった。@fig-decay-comparison が示すように、介入前日を基準とした変化率で両エピソードを重ねてみると、4月の単独介入はおよそ1か月かけて介入前の水準へとほぼ完全に戻ってしまっている。この減衰のパターンをどう理解するかが、本稿の出発点となる問いである。  
+
+両エピソードを比較する際に留意すべきは、4月と7月では介入規模がほぼ同水準であった一方[^scale-note]、協調の有無という点で異なっていたことである。したがって、二つのエピソードの間に効果の持続性の違いが観察された場合、それを金利差の動向(いずれも据え置きが継続)に帰属させてよいのか、あるいは協調という別の要因に帰属させるべきなのかを、単純な比較だけから判別することはできない。この識別上の限界を踏まえたうえで、本稿はなお金利差(および利上げの有無)を主たる説明変数として位置づける。その理由は、ある有識者の見解に集約される。すなわち、日米当局自身が、これまでの介入の効果はあくまで一時的なものと認識しており、だからこそ米国側が実弾投入を辞さない姿勢を鮮明にしたのだと考えられる。今後数四半期にわたり介入がより頻繁に用いられる局面が想定されるが、利上げ加速などの政策変更が伴わない限り、その持続性にはおのずと限界がある——介入は根治療法ではなく応急措置に過ぎない、という趣旨である[^nikkei-intervention]。この見立てに従えば、協調や規模は介入の初期的なインパクトやシグナリングの強度を左右する変数ではあっても、為替の均衡水準そのものを動かす力を持つのは金利差の変化に限られる、という仮説が導かれる。本稿は以下、この仮説を理論モデルとエピソード比較の両面から検討する。
+
+[^scale-note]: 介入規模と効果の関係は、理論的には無視できない論点だが、本稿では金利差との関係に焦点を絞るため、規模そのものの効果分析には立ち入らない。  
+[^nikkei-intervention]: <https://www.nikkei.com/article/DGXZQOGN31CC30R30C26A7000000/>日本経済新聞「円買い介入『日銀利上げなければ効果限定』米国識者の見方」2026年8月1日
+
+
+
 
 # 理論モデル
 
 ## ベースモデル：不胎化介入とUIP
-
-<!-- UIPの定式化、介入ショックε_tと減衰率λ、
-     均衡水準s̄_tの金利差予想への依存を式で展開 -->
 
 $$
 E_t[\Delta s_{t+1}] = i_t^{JP} - i_t^{US}
@@ -265,39 +352,16 @@ $$
 s_t = \bar{s}_t + \varepsilon_t, \qquad \varepsilon_{t+k} = \varepsilon_t \cdot e^{-\lambda k}
 $$ {#eq-decay}
 
-<!-- 命題1・命題2として比較静学を整理 -->
-
 ## 想定される反論への応答：フォワード・プレミアム・パズル
-
-<!-- UIPの実証的破れ（Fama 1984, β<1あるいは負）を紹介し、
-     それがモデルへの脅威ではなく「金利差の水準が
-     キャリーポジション需給を通じて為替を動かす」という
-     主張の精緻化に資することを示す -->
 
 ## リスクプレミアムの内生化
 
-<!-- ρ_tをキャリーポジション需給の関数として位置づけ、
-     利上げのみが金利差そのものを縮小できる、という結論へ接続 -->
-
 # エピソード比較による検証
-
-<!-- Part 3: 55分想定 -->
 
 ## 比較対象エピソード
 
-<!-- 1998年6月／2022年9-10月／2024年7月末／2026年4-5月／今回
-     を表形式で整理（介入額、金利差の変化方向、効果持続日数） -->
-
 ## 観察されるパターン
-
-<!-- 金利差予想の変化方向と効果持続性の関係を確認
-     （余裕があればIMM円ネットポジションも一列追加） -->
 
 # 結論とインプリケーション
 
-<!-- Part 4: 15分想定
-     今回のケースへの予測（9月FOMC利上げ観測7割の下で
-     日銀が動かなければ効果は過去より早く減衰する）で締める -->
-
 # 参考文献
-<!-- bibliographyで自動生成 -->
